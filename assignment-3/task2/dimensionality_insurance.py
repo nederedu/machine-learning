@@ -62,31 +62,33 @@ def main():
         sys.exit(1)
 
     # Set the number of components to reduce to
-    n_components = min(data_scaled.shape[1], 10)  # Adjust based on your needs
+    n_components_rp = min(data_scaled.shape[1], 6)  # Adjust based on your needs
+    n_components_pca = min(data_scaled.shape[1], 2)  # Adjust based on your needs
+    n_components_ica = min(data_scaled.shape[1], 4)  # Adjust based on your needs
 
     # Apply dimensionality reduction techniques
     try:
-        rp_result = apply_randomized_projections(data_scaled, n_components)
+        rp_result = apply_randomized_projections(data_scaled, n_components_rp)
     except Exception as e:
         print(f"Error in Randomized Projections: {e}")
         sys.exit(1)
 
     try:
-        pca_result = apply_pca(data_scaled, n_components)
+        pca_result = apply_pca(data_scaled, n_components_pca)
     except Exception as e:
         print(f"Error in PCA: {e}")
         sys.exit(1)
 
     try:
-        ica_result = apply_ica(data_scaled, n_components)
+        ica_result = apply_ica(data_scaled, n_components_ica)
     except Exception as e:
         print(f"Error in ICA: {e}")
         sys.exit(1)
 
     # Create dataframes for the results
-    rp_df = pd.DataFrame(rp_result, columns=[f'RP_{i+1}' for i in range(n_components)])
-    pca_df = pd.DataFrame(pca_result, columns=[f'PCA_{i+1}' for i in range(n_components)])
-    ica_df = pd.DataFrame(ica_result, columns=[f'ICA_{i+1}' for i in range(n_components)])
+    rp_df = pd.DataFrame(rp_result, columns=[f'RP_{i+1}' for i in range(n_components_rp)])
+    pca_df = pd.DataFrame(pca_result, columns=[f'PCA_{i+1}' for i in range(n_components_pca)])
+    ica_df = pd.DataFrame(ica_result, columns=[f'ICA_{i+1}' for i in range(n_components_ica)])
 
     # Save the results to CSV files
     rp_df.to_csv(f'{dataset_name}_randomized_projections.csv', index=False)

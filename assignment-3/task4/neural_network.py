@@ -8,8 +8,11 @@ from sklearn.preprocessing import StandardScaler, OneHotEncoder, LabelEncoder
 from sklearn.compose import ColumnTransformer
 from sklearn.pipeline import Pipeline
 from sklearn.neural_network import MLPClassifier
+from sklearn.decomposition import PCA, FastICA, TruncatedSVD
+from sklearn.random_projection import GaussianRandomProjection
 from sklearn.metrics import accuracy_score, classification_report
 import time
+import scipy.sparse
 
 # Global parameter to turn on/off plotting
 PLOT_RESULTS = True
@@ -65,7 +68,7 @@ def plot_learning_curve(estimator, title, X, y, cv=5, n_jobs=None):
     plt.plot(train_sizes, test_scores_mean, 'o-', color="g", label="Cross-validation accuracy")
     
     plt.legend(loc="best")
-    plt.savefig(f"{dataset_name}_learning_curve.png")
+    plt.savefig(f"{dataset_name}_{title}_learning_curve.png")
     plt.show()
 
 # Function to plot validation curves
@@ -88,11 +91,11 @@ def plot_validation_curve(estimator, title, X, y, param_name, param_range, cv=5,
     plt.plot(param_range, test_scores_mean, 'o-', color="g", label="Cross-validation accuracy")
     
     plt.legend(loc="best")
-    plt.savefig(f"{dataset_name}_validation_curve.png")
+    plt.savefig(f"{dataset_name}_{title}_validation_curve.png")
     plt.show()
 
 # Function to plot grid search results
-def plot_grid_search(cv_results, grid_param, name_param):
+def plot_grid_search(cv_results, grid_param, name_param, title):
     if not PLOT_RESULTS:
         return
     scores_mean = cv_results['mean_test_score']
@@ -100,17 +103,20 @@ def plot_grid_search(cv_results, grid_param, name_param):
     plt.figure()
     plt.plot(grid_param, scores_mean, '-o')
     
-    plt.title("Grid Search Scores")
+    plt.title(f"Grid Search Scores ({title})")
     plt.xlabel(name_param)
     plt.ylabel('Accuracy')
     plt.grid(True)
-    plt.savefig(f"{dataset_name}_grid_search.png")
+    plt.savefig(f"{dataset_name}_{title}_grid_search.png")
     plt.show()
 
 # Function to train, evaluate, and plot learning and validation curves, including training time
-def train_evaluate_plot(model, model_name, param_name, param_range, param_grid, plot_param_name=None):
+def train_evaluate_plot(model, model_name, param_name, param_range, param_grid, plot_param_name=None, title_suffix=""):
     # Create a pipeline that first transforms the data and then fits the model
-    clf = Pipeline(steps=[('preprocessor', preprocessor), ('classifier', model)])
+    if model['reducer'] is None:
+        clf = Pipeline(steps=[('preprocessor', preprocessor), ('classifier', model['classifier'])])
+    else:
+        clf = Pipeline(steps=[('preprocessor', preprocessor), ('reducer', model['reducer']), ('classifier', model['classifier'])])
     
     # Split the dataset into training and test sets
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
@@ -131,38 +137,59 @@ def train_evaluate_plot(model, model_name, param_name, param_range, param_grid, 
     train_accuracy = accuracy_score(y_train, y_train_pred)
     test_accuracy = accuracy_score(y_test, y_test_pred)
     
-    print(f'{model_name} Training Time: {training_time:.2f} seconds')
-    print(f'{model_name} Training Accuracy: {train_accuracy:.2f}')
-    print(f'{model_name} Testing Accuracy: {test_accuracy:.2f}')
-    print(f'{model_name} Classification Report:\n{classification_report(y_test, y_test_pred, zero_division=1)}')
+    print(f'{model_name} {title_suffix} Training Time: {training_time:.2f} seconds')
+    print(f'{model_name} {title_suffix} Training Accuracy: {train_accuracy:.2f}')
+    print(f'{model_name} {title_suffix} Testing Accuracy: {test_accuracy:.2f}')
+    print(f'{model_name} {title_suffix} Classification Report:\n{classification_report(y_test, y_test_pred, zero_division=1)}')
     print('---------------------------------------------')
     
     # Plot learning curve
-    plot_learning_curve(clf, f"Learning Curves ({model_name})", X, y)
+    plot_learning_curve(clf, f"Learning Curves ({model_name} {title_suffix})", X, y)
     
     # Plot validation curve for selected hyper-parameter
     if plot_param_name in param_name:
         idx = param_name.index(plot_param_name)
-        plot_validation_curve(clf, f"Validation Curve ({model_name})", X, y, param_name[idx], param_range[idx])
+        plot_validation_curve(clf, f"Validation Curve ({model_name} {title_suffix})", X, y, param_name[idx], param_range[idx])
     
     # Perform grid search
     grid_search = GridSearchCV(estimator=clf, param_grid=param_grid, scoring='accuracy', cv=5, n_jobs=-1)
     grid_search.fit(X_train, y_train)
     
     # Plot grid search results
-    plot_grid_search(grid_search.cv_results_, param_grid[param_name[0]], param_name[0])
+    plot_grid_search(grid_search.cv_results_, param_grid[param_name[0]], param_name[0], f"{model_name} {title_suffix}")
 
-# Step 6: Define and evaluate the models
+# Define and evaluate the models
 
 # Neural Network Classifier with increased max_iter, learning_rate_init set to 1, and early stopping
-nn_model = MLPClassifier(random_state=42, max_iter=2000, learning_rate_init=1, solver='adam', early_stopping=True, n_iter_no_change=10)
+nn_classifier = MLPClassifier(random_state=42, max_iter=2000, learning_rate_init=1, solver='adam', early_stopping=True, n_iter_no_change=10)
 nn_param_name = ['classifier__learning_rate_init']
 nn_param_range = [np.logspace(-5, -1, 5)]
 nn_param_grid = {'classifier__learning_rate_init': np.logspace(-5, -1, 5)}
 
-# Example usage
+# PCA (use TruncatedSVD for sparse input)
+def get_pca_reducer():
+    if scipy.sparse.issparse(X):
+        return TruncatedSVD(n_components=0.95)
+    else:
+        return PCA(n_components=0.95)
+
+# ICA
+ica_reducer = FastICA(random_state=42)
+# Randomized Projection
+rp_reducer = GaussianRandomProjection()
+
+# Models with dimensionality reduction
+models = {
+    'NN': {'reducer': None, 'classifier': nn_classifier},
+    'NN_PCA': {'reducer': get_pca_reducer(), 'classifier': nn_classifier},
+    'NN_ICA': {'reducer': ica_reducer, 'classifier': nn_classifier},
+    'NN_RP': {'reducer': rp_reducer, 'classifier': nn_classifier}
+}
+
 # Set the parameter to plot (change this as needed)
 plot_param_name = 'classifier__learning_rate_init'  # Change to the desired hyperparameter
 
-# Train and evaluate the model
-train_evaluate_plot(nn_model, "Neural Network Classifier", nn_param_name, nn_param_range, nn_param_grid, plot_param_name)
+# Train and evaluate the models
+for model_name, model in models.items():
+    title_suffix = "" if model['reducer'] is None else f" with {model['reducer'].__class__.__name__}"
+    train_evaluate_plot(model, "Neural Network Classifier", nn_param_name, nn_param_range, nn_param_grid, plot_param_name, title_suffix)
